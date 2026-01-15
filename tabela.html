@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Frequência de Bolsistas</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background:#f4f6f8;
+  padding:20px;
+}
+h2 { margin-top:0; }
+
+button {
+  padding:6px 12px;
+  margin:4px;
+  border:none;
+  border-radius:4px;
+  background:#0057b8;
+  color:#fff;
+  cursor:pointer;
+}
+button:hover { background:#004494; }
+
+table {
+  width:100%;
+  border-collapse:collapse;
+  font-size:13px;
+}
+th, td {
+  border:1px solid #ccc;
+  padding:4px;
+  text-align:center;
+}
+th { background:#eee; }
+
+input, select {
+  width:100%;
+  font-size:12px;
+}
+
+#msg {
+  margin:10px 0;
+  font-weight:bold;
+}
+.sucesso { color:green; }
+.erro { color:red; }
+</style>
+</head>
+
+<body>
+
+<h2>Sistema de Frequência de Bolsistas</h2>
+<div id="info"></div>
+
+<div id="painelAdmin" style="display:none;">
+  <button onclick="adicionarBolsista()">➕ Adicionar bolsista</button>
+  <button onclick="removerSelecionado()">🗑️ Remover selecionado</button>
+  <button onclick="enviar()">📤 Enviar planilha</button>
+</div>
+
+<div id="msg"></div>
+
+<table id="tabela">
+<thead>
+<tr>
+  <th>Sel</th>
+  <th>Matrícula</th>
+  <th>Nome</th>
+  <th>Campus</th>
+  <th>Setor</th>
+  <th>Jan</th><th>Fev</th><th>Mar</th><th>Abr</th>
+  <th>Mai</th><th>Jun</th><th>Jul</th><th>Ago</th>
+  <th>Set</th><th>Out</th><th>Nov</th><th>Dez</th>
+  <th>Justificativa</th>
+  <th>Arquivo</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+/* ================= CONFIG ================= */
+const URL_API = "https://script.google.com/macros/s/AKfycbxZOYdKpvSBCt4sKsV0dMhI4D3yMokvvrR_htQbdK9GZo-5rvSFPJ-ryN7zkhwwx_DJxg/exec";
+const EMAIL_ADMIN = "bolsatrabalho@prex.uespi.br";
+
+/* ================= LOGIN ================= */
+const EMAIL = (sessionStorage.getItem("coordenadorLogado") || "").toLowerCase().trim();
+const IS_ADMIN = EMAIL === EMAIL_ADMIN;
+
+if (!EMAIL) {
+  alert("Sessão expirada. Faça login novamente.");
+  location.href = "index.html";
+}
+
+document.getElementById("info").innerText =
+  `Usuário: ${EMAIL} | Perfil: ${IS_ADMIN ? "Administrador" : "Coordenador"}`;
+
+if (IS_ADMIN) {
+  document.getElementById("painelAdmin").style.display = "block";
+}
+
+/* ================= DADOS ================= */
+let dados = [];
+const meses = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+
+/* ================= MENSAGEM ================= */
+function msg(txt, tipo="sucesso") {
+  const el = document.getElementById("msg");
+  el.className = tipo;
+  el.innerText = txt;
+  setTimeout(()=> el.innerText="", 4000);
+}
+
+/* ================= CARREGAR ================= */
+async function carregar() {
+  try {
+    const resp = await fetch(`${URL_API}?acao=listar&email=${encodeURIComponent(EMAIL)}`);
+    const json = await resp.json();
+
+    if (!json.dados) throw "Resposta inválida";
+
+    dados = json.dados;
+    render();
+
+  } catch (e) {
+    console.error(e);
+    msg("Erro ao carregar dados", "erro");
+  }
+}
+
+/* ================= RENDER ================= */
+function render() {
+  const tbody = document.querySelector("#tabela tbody");
+  tbody.innerHTML = "";
+
+  dados.forEach((l,i) => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td><input type="radio" name="sel" value="${i}"></td>
+      <td><input value="${l[2]||""}"></td>
+      <td><input value="${l[1]||""}"></td>
+      <td><input value="${l[0]||""}"></td>
+      <td><input value="${l[3]||""}"></td>
+    `;
+
+    meses.forEach(() => {
+      tr.innerHTML += `
+        <td>
+          <select>
+            <option value=""></option>
+            <option value="SIM">SIM</option>
+            <option value="NÃO">NÃO</option>
+          </select>
+        </td>`;
+    });
+
+    tr.innerHTML += `
+      <td><input></td>
+      <td><input type="file" onchange="fileToBase64(event, ${i})"></td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+/* ================= AÇÕES ================= */
+function adicionarBolsista() {
+  dados.push(["","","","",""]);
+  render();
+  msg("Linha adicionada");
+}
+
+function removerSelecionado() {
+  const sel = document.querySelector("input[name='sel']:checked");
+  if (!sel) return msg("Selecione um bolsista", "erro");
+  dados.splice(sel.value,1);
+  render();
+  msg("Bolsista removido");
+}
+
+function fileToBase64(e, i) {
+  const f = e.target.files[0];
+  if (!f) return;
+  if (f.size > 10*1024*1024) {
+    msg("Arquivo maior que 10MB","erro");
+    e.target.value="";
+    return;
+  }
+  const r = new FileReader();
+  r.onload = () => dados[i].arquivo = r.result;
+  r.readAsDataURL(f);
+}
+
+async function enviar() {
+  try {
+    const resp = await fetch(URL_API, {
+      method:"POST",
+      body:JSON.stringify({email:EMAIL, dados})
+    });
+    const j = await resp.json();
+    if (j.status==="ok") msg("Dados enviados com sucesso");
+    else throw j.mensagem;
+  } catch(e) {
+    console.error(e);
+    msg("Erro ao enviar dados","erro");
+  }
+}
+
+/* ================= INIT ================= */
+carregar();
+</script>
+
+</body>
+</html>
